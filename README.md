@@ -75,5 +75,35 @@ npm run dev
 - 列表接口统一返回 `{ items, total, page, size }`，动作接口统一返回 `{ ok, message }`。
 - 状态流转只允许在 `app/services` 里改，路由层不做业务判断。
 
+## 质量审计记录版本化迁移
+
+历史质量审计记录以 JSON 数组保存（`backend/data/audit_records.json` 及
+`backend/data/legacy_audit/*.json`），字段没有稳定版本；新版记录以信封结构写入
+（`backend/data/new_envelopes/*.json`）。迁移由 `app/services/audit_migration.py` 负责：
+
+- **来源与映射**：同时读取旧数组与新版信封，按记录编号（`record_no`）映射
+  版本号、关联批次、检查项、判定结果，生成带版本号的信封数据集
+  （联合表 `audit_envelopes`，落盘 `data/audit_envelopes.json`），每条信封保存
+  完整记录信封 `payload`、来源类型/文件/来源版本，以及旧数组原样快照 `legacy_snapshot`。
+- **批量与原子性**：一次迁移批量处理全部来源文件、逐条核对，先在内存工作副本上
+  完成全部变更，最后整组一次提交（唯一落盘点）；任一来源文件损坏则整组回滚。
+  每批迁移在 `data/audit_migrations.json` 留凭证（含每文件扫描/迁移/跳过/冲突计数）。
+- **幂等**：同来源文件 + 同来源记录 id、或同记录编号同内容哈希，重复导入不产生
+  重复审计版本，只累计跳过计数。
+- **单一当前版本**：同一记录编号同时只有一个 `current` 版本，旧结论转为
+  `archived`，旧字段与审计结论始终保留可追溯。
+- **冲突不静默覆盖**：同记录编号新旧实际值不一致时支持两种策略——
+  `manual`（默认）：两条都保留，新版进 `pending_confirm` 冲突清单，读取服务呈现
+  待确认状态，经人工 `use_incoming` / `keep_current` 确认后再调整当前版本；
+  `archive`：以新版信封为当前结论，旧数组归档。两种方式都不会静默覆盖历史。
+- **统一读取**：`GET /api/quality_check/versions` 同时返回新版数据集与未迁移旧记录；
+  `GET /api/quality_check/records/{记录编号}/detail` 返回当前版本与完整版本链。
+- **落库闸门**：`GET /api/quality_check/export` 仅在数据集已落库时允许导出，
+  空数据集返回 409。
+- **跨模块入口同步**：`/api/pipeline/audit/*` 与质量审计模块共用同一服务，
+  审计引擎新产出的结论通过 `append_live_audit` 直接进入版本化数据集。
+- 服务启动时自动执行一次幂等迁移（`bootstrap_auto_migrate`），读取服务开箱即可
+  看到落库数据；也可通过 `POST /api/quality_check/migration/run` 手动触发。
+
 领域：数据工程
 子方向：数据采集、爬虫与RPA

@@ -1,0 +1,28 @@
+[
+  {
+    "id": 101,
+    "batch_id": 7,
+    "audit_entry_id": 101,
+    "verdict": "通过",
+    "issues": [],
+    "audited_at": "2026-10-08 09:12:30",
+    "record_no": "QUAL-0101",
+    "batch_no": "RESU-0101",
+    "check_item": "字段完整率",
+    "threshold": "完整率>=95%",
+    "actual": "完整率97.2%"
+  },
+  {
+    "id": 102,
+    "batch_id": 8,
+    "audit_entry_id": 102,
+    "verdict": "不通过",
+    "issues": ["空值率超阈值"],
+    "audited_at": "2026-10-09 14:05:11",
+    "record_no": "QUAL-0102",
+    "batch_no": "RESU-0102",
+    "check_item": "空值率",
+    "threshold": "空值率<=2%",
+    "actual": "空值率5.8%"
+  }
+]

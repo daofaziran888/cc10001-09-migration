@@ -15,24 +15,35 @@ _DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file_
 
 class Store:
     def __init__(self) -> None:
+        self._data_dir = _DATA_DIR
         self._tables: dict[str, list[dict[str, Any]]] = {
             name: [dict(row) for row in rows] for name, rows in SEED_ROWS.items()
         }
         # 联合存储表：跨模块数据流的持久化产物
         self._joint: dict[str, list[dict[str, Any]]] = {
             "pipeline_state": [],      # 流水线执行状态与产物
-            "audit_records": [],       # 质量审计记录
+            "audit_records": [],       # 质量审计记录（旧版 JSON 数组）
             "sync_positions": [],      # 增量同步水位
             "dispatch_logs": [],       # 数据分发日志
             "proxy_assignments": [],   # 代理分配记录
             "cookie_rotations": [],    # 凭证轮换记录
             "scheduler_triggers": [],  # 调度触发记录
+            # 质量审计版本化迁移产物
+            "audit_envelopes": [],     # 带版本号的质量审计记录信封数据集
+            "audit_migrations": [],    # 迁移批次日志（整组一次提交的凭证）
         }
         self._load_joint()
 
+    def set_data_dir(self, path: str) -> None:
+        """重定向联合表落盘目录（测试隔离用），并重新加载该目录下的数据。"""
+        self._data_dir = path
+        for key in self._joint:
+            self._joint[key] = []
+        self._load_joint()
+
     def _joint_path(self, key: str) -> str:
-        os.makedirs(_DATA_DIR, exist_ok=True)
-        return os.path.join(_DATA_DIR, f"{key}.json")
+        os.makedirs(self._data_dir, exist_ok=True)
+        return os.path.join(self._data_dir, f"{key}.json")
 
     def _load_joint(self) -> None:
         for key in self._joint:
@@ -102,6 +113,15 @@ class Store:
 
     def joint_clear(self, key: str) -> None:
         self._joint[key] = []
+        self._save_joint(key)
+
+    def joint_replace(self, key: str, rows: list[dict[str, Any]]) -> None:
+        """整组一次提交：用新列表整体替换某张联合表并落盘（迁移批次的原子写入点）。"""
+        self._joint[key] = [dict(row) for row in rows]
+        self._save_joint(key)
+
+    def joint_save(self, key: str) -> None:
+        """对已在内存中修改的联合表显式落盘。"""
         self._save_joint(key)
 
     def joint_all(self) -> dict[str, list[dict[str, Any]]]:

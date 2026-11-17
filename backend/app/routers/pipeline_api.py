@@ -108,6 +108,9 @@ def audit_batch(payload: AuditBatchPayload) -> dict:
     res = quality_auditor.audit_batch(payload.batch_id)
     if not res.get("ok"):
         raise HTTPException(status_code=400, detail=res.get("error"))
+    # 跨模块入口同步返回迁移来源状态，保证两个入口看到同一套版本化数据
+    from app.services.audit_migration import audit_migration_service
+    res["migration_status"] = audit_migration_service.migration_status()
     return res
 
 
@@ -117,8 +120,14 @@ def audit_all() -> dict:
 
 
 @router.get("/audit/records")
-def list_audit_records() -> list:
-    return quality_auditor.list_records()
+def list_audit_records() -> dict:
+    """跨模块审计读取：旧数组记录 + 版本化数据集 + 迁移来源一次性返回。"""
+    from app.services.audit_migration import audit_migration_service
+    return {
+        "legacy_records": quality_auditor.list_records(),
+        "versioned": audit_migration_service.read_all(),
+        "migration_status": audit_migration_service.migration_status(),
+    }
 
 
 @router.get("/audit/records/{record_id}")
@@ -126,7 +135,13 @@ def get_audit_record(record_id: int) -> dict:
     rec = quality_auditor.get_record(record_id)
     if rec is None:
         raise HTTPException(status_code=404, detail=f"审计记录 {record_id} 不存在")
-    return rec
+    # 同步附带该记录对应记录编号的版本化详情（若已迁移）
+    from app.services.audit_migration import audit_migration_service
+    qc = quality_auditor.get_qc_entry(int(rec.get("audit_entry_id", 0)))
+    detail = None
+    if qc is not None:
+        detail = audit_migration_service.read_detail(str(qc.get("记录编号", "")))
+    return {"legacy_record": rec, "versioned_detail": detail}
 
 
 # ---------- 增量同步 ----------

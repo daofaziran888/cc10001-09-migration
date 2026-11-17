@@ -71,6 +71,19 @@ class QualityAuditor:
         }
         store.joint_append("audit_records", record)
 
+        # 同步写入版本化质量审计数据集（跨模块入口与迁移来源保持一致）
+        from app.services.audit_migration import audit_migration_service
+        audit_migration_service.append_live_audit(
+            record_no=qc_values["记录编号"],
+            batch_id=batch_id,
+            batch_no=str(batch.get("批次编号", "")),
+            check_item=qc_values["检查项"],
+            verdict=verdict,
+            payload=qc_values,
+            legacy_snapshot=record,
+            source_record_id=record["id"],
+        )
+
         # 更新批次状态
         batch["status"] = "校验通过" if verdict == "通过" else "校验失败"
         batch["pending"] = verdict != "通过"
@@ -96,6 +109,10 @@ class QualityAuditor:
 
     def get_record(self, record_id: int) -> dict[str, Any] | None:
         return store.joint_find("audit_records", record_id)
+
+    def get_qc_entry(self, audit_entry_id: int) -> dict[str, Any] | None:
+        """按 audit_entry_id 取质量审计模块的业务记录（公开入口）。"""
+        return self._qc_svc.get_entry(audit_entry_id)
 
 
 quality_auditor = QualityAuditor()

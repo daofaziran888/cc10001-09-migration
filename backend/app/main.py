@@ -5,6 +5,8 @@
 """
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -12,7 +14,16 @@ from app.config import settings
 from app.routers import ROUTERS
 from app.store import store
 
-app = FastAPI(title="采集工坊 · 爬虫与RPA开发平台", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # 启动时幂等迁移存量质量审计记录：读取服务开箱即可读到落库的版本化数据集
+    from app.services.audit_migration import audit_migration_service
+    audit_migration_service.bootstrap_auto_migrate()
+    yield
+
+
+app = FastAPI(title="采集工坊 · 爬虫与RPA开发平台", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
